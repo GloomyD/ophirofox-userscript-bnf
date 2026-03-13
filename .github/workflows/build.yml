@@ -8,7 +8,7 @@ on:
     branches: [ "main" ]
 
   schedule:
-    - cron: "0 */1 * * *"
+    - cron: "0 */6 * * *"
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
     if: ${{ needs.check-version.outputs.update_available == 'true' }}
     steps:
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -90,10 +90,10 @@ jobs:
           echo "Does file exist?"
           if [ -f "./ophirofox/ophirofox.user.js" ]; then echo "Yes"; else echo "No"; fi
 
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v2
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.11
 
       - name: Install jsbeautifier via pip
         working-directory: ophirofox
@@ -121,7 +121,7 @@ jobs:
           fi
           
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.check-version.outputs.ophirofox_version_raw }}
           name: Release ${{ needs.check-version.outputs.ophirofox_version }}
