@@ -190,7 +190,7 @@
      * */
 
     // Changer la variable par le nom de votre université. Voir la liste ci-dessous dans ophirofox_config_list.
-    const universityName = "Bibliotheque nationale et universitaire de Strasbourg"
+    const universityName = "BNF"
 
     /* ----------------
      *   HELPERS
