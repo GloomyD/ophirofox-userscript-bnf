@@ -4,8 +4,8 @@ Génère automatiquement un userscript à chaque release d'une nouvelle version 
 
 Lien vers le projet : https://github.com/lovasoa/ophirofox
 
-N'oubliez pas de modifier la constante universityName à chaque mise à jour de l'userscript.
-(cette version est un fork de https://github.com/Write/ophirofox-userscript pour les utilisateurs de la BNF *merci beaucoup à Write pour son travail !* )
+N'oubliez pas de modifier la constante universityName dans le fichier final à chaque mise à jour de l'userscript si vous souhaitez utiliser une autre université.
+(cette version est un fork de https://github.com/Write/ophirofox-userscript pour les utilisateurs de la BNF la variable BNF est codée en dur dans le script generate-userscript.sh **merci beaucoup à Write pour son travail !** )
 
 # Installation sur iOS 
 
