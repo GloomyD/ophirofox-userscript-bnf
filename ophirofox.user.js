@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10611.1714
+// @version 2.6.10615.44
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -165,6 +165,8 @@
 // @include https://www.challenges.fr/*
 // @include https://www.arretsurimages.net/*
 // @include https://www-arretsurimages-net.bnf.idm.oclc.org/*
+// @include https://www.alternatives-economiques.fr/*
+// @include https://www-alternatives-economiques-fr.bnf.idm.oclc.org/*
 // @include https://www.pressreader.com/*
 // @include https://www.usinenouvelle.com/*
 // @include https://elpais.com/*
@@ -265,7 +267,8 @@
         "AUTH_URL": "https://bnf.idm.oclc.org/login?url=https://nouveau.europresse.com/access/ip/default.aspx?un=D000067U_1",
         "AUTH_URL_ARRETSURIMAGES": "www-arretsurimages-net.bnf.idm.oclc.org",
         "AUTH_URL_MEDIAPART": "www-mediapart-fr.bnf.idm.oclc.org",
-        "AUTH_URL_PRESSREADER": "www-pressreader-com.bnf.idm.oclc.org"
+        "AUTH_URL_PRESSREADER": "www-pressreader-com.bnf.idm.oclc.org",
+        "AUTH_URL_ALTERNATIVESECONOMIQUES": "www-alternatives-economiques-fr.bnf.idm.oclc.org"
     }, {
         "name": "Bibliothèque Publique d'Information (BPI)",
         "AUTH_URL": "https://bpi.idm.oclc.org/login?url=https://nouveau.europresse.com/access/ip/default.aspx?un=pompi"
@@ -1511,6 +1514,39 @@
                 return await ophirofoxEuropresseLink(extractKeywords());
             }
 
+            /**
+             * Insère le lien Europresse après .article__subscriber-container et
+             * surveille les remplacements DOM (la section est re-rendue par le site).
+             * L'observateur cible le parent de la section, pas document.body,
+             * pour minimiser les callbacks inutiles.
+             */
+            async function ensureLinkAfterSubscriberContainer() {
+                const container = document.querySelector(".article__subscriber-container");
+                if (!container) return;
+
+                const link = await createLink();
+
+                function insertLink() {
+                    const liveContainer = document.querySelector(".article__subscriber-container");
+                    if (!liveContainer) return;
+                    if (liveContainer.nextElementSibling === link) return;
+                    liveContainer.after(link);
+                }
+
+                insertLink();
+
+                // On observe le grand-parent : la section (publication__card) est
+                // remplacée, mais son parent, lui, reste stable.
+                const root = container.parentElement?.parentElement;
+                if (!root) return;
+
+                const observer = new MutationObserver(() => insertLink());
+                observer.observe(root, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+
             async function onLoad() {
                 // Check if we're on the kiosque page
                 if (window.location.href.endsWith('kiosque/telerama')) {
@@ -1541,8 +1577,7 @@
                     }
 
                 } else {
-                    const msg_abo = document.querySelector(".article__subscriber-container");
-                    msg_abo.after(await createLink());
+                    await ensureLinkAfterSubscriberContainer();
                 }
             }
 
@@ -3959,6 +3994,14 @@
                 return [...elems].filter(d => textToFind.some(text => d.textContent.includes(text)));
             }
 
+            /** @return {boolean} true si le bouton BNF est déjà dans le DOM */
+            function bnfLinkAlreadyPresent() {
+                return !!document.querySelector("a.ophirofox-europresse");
+            }
+
+            /** Dernier observer DOM créé par handleArretSurImages — déconnecté à chaque nouvelle navigation SPA */
+            let _asiObserver = null;
+
             async function handleArretSurImagesMirror() {
                 const checkAndRedirect = async () => {
                     const currentPage = new URL(window.location);
@@ -4034,18 +4077,70 @@
 
             async function handleArretSurImages(config) {
                 console.log("[ophirofox][asi] checking for premium banner");
-                const reserve = findPremiumBanner();
-                if (!reserve?.length) {
-                    console.log("[ophirofox][asi] no premium banner found, aborting");
-                    return;
+
+                // Déconnecter l'ancien observer d'une navigation SPA précédente
+                if (_asiObserver) {
+                    _asiObserver.disconnect();
+                    _asiObserver = null;
                 }
-                console.log("[ophirofox][asi] premium banner found, setting storage and injecting link");
-                chrome.storage.sync.set({
-                    "ophirofox_arretsurimages_article": new URL(window.location).pathname
+
+                function tryInject() {
+                    if (bnfLinkAlreadyPresent()) return true;
+
+                    const reserve = findPremiumBanner();
+                    if (!reserve?.length) return false;
+
+                    console.log("[ophirofox][asi] premium banner found, injecting link");
+                    chrome.storage.sync.set({
+                        "ophirofox_arretsurimages_article": new URL(window.location).pathname
+                    });
+                    for (const balise of reserve) {
+                        balise.parentElement.appendChild(createLink());
+                    }
+                    return true;
+                }
+
+                // Tentative immédiate
+                if (tryInject()) return;
+
+                // Sinon, observe le DOM jusqu'à ce que l'article soit rendu
+                const observer = new MutationObserver(() => {
+                    if (tryInject()) {
+                        observer.disconnect();
+                        _asiObserver = null;
+                    }
                 });
-                for (const balise of reserve) {
-                    balise.parentElement.appendChild(createLink());
+                _asiObserver = observer;
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+
+            /**
+             * Ré-exécute handleArretSurImages à chaque navigation SPA.
+             */
+            function watchForSpaNavigation(config) {
+                const run = () => handleArretSurImages(config).catch(console.error);
+
+                // Hook pushState / replaceState
+                for (const method of ["pushState", "replaceState"]) {
+                    const orig = history[method].bind(history);
+                    history[method] = (...args) => {
+                        orig(...args);
+                        run();
+                    };
                 }
+                window.addEventListener("popstate", run);
+
+                // Polling URL pour les SPA qui ne passent pas par history API
+                let lastPathname = window.location.pathname;
+                setInterval(() => {
+                    if (window.location.pathname !== lastPathname) {
+                        lastPathname = window.location.pathname;
+                        run();
+                    }
+                }, 500);
             }
 
             /**@description check for BNF users. If yes, create link button */
@@ -4064,6 +4159,7 @@
                 } else {
                     console.log("[ophirofox][asi] on original site, running handleArretSurImages");
                     setTimeout(() => handleArretSurImages(config).catch(console.error), 1000);
+                    watchForSpaNavigation(config);
                 }
             }
 
@@ -4122,6 +4218,14 @@
                 return [...elems].filter(d => textToFind.some(text => d.textContent.includes(text)));
             }
 
+            /** @return {boolean} true si le bouton BNF est déjà dans le DOM */
+            function bnfLinkAlreadyPresent() {
+                return !!document.querySelector("a.ophirofox-europresse");
+            }
+
+            /** Dernier observer DOM créé par handleArretSurImages — déconnecté à chaque nouvelle navigation SPA */
+            let _asiObserver = null;
+
             async function handleArretSurImagesMirror() {
                 const checkAndRedirect = async () => {
                     const currentPage = new URL(window.location);
@@ -4197,18 +4301,70 @@
 
             async function handleArretSurImages(config) {
                 console.log("[ophirofox][asi] checking for premium banner");
-                const reserve = findPremiumBanner();
-                if (!reserve?.length) {
-                    console.log("[ophirofox][asi] no premium banner found, aborting");
-                    return;
+
+                // Déconnecter l'ancien observer d'une navigation SPA précédente
+                if (_asiObserver) {
+                    _asiObserver.disconnect();
+                    _asiObserver = null;
                 }
-                console.log("[ophirofox][asi] premium banner found, setting storage and injecting link");
-                chrome.storage.sync.set({
-                    "ophirofox_arretsurimages_article": new URL(window.location).pathname
+
+                function tryInject() {
+                    if (bnfLinkAlreadyPresent()) return true;
+
+                    const reserve = findPremiumBanner();
+                    if (!reserve?.length) return false;
+
+                    console.log("[ophirofox][asi] premium banner found, injecting link");
+                    chrome.storage.sync.set({
+                        "ophirofox_arretsurimages_article": new URL(window.location).pathname
+                    });
+                    for (const balise of reserve) {
+                        balise.parentElement.appendChild(createLink());
+                    }
+                    return true;
+                }
+
+                // Tentative immédiate
+                if (tryInject()) return;
+
+                // Sinon, observe le DOM jusqu'à ce que l'article soit rendu
+                const observer = new MutationObserver(() => {
+                    if (tryInject()) {
+                        observer.disconnect();
+                        _asiObserver = null;
+                    }
                 });
-                for (const balise of reserve) {
-                    balise.parentElement.appendChild(createLink());
+                _asiObserver = observer;
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+
+            /**
+             * Ré-exécute handleArretSurImages à chaque navigation SPA.
+             */
+            function watchForSpaNavigation(config) {
+                const run = () => handleArretSurImages(config).catch(console.error);
+
+                // Hook pushState / replaceState
+                for (const method of ["pushState", "replaceState"]) {
+                    const orig = history[method].bind(history);
+                    history[method] = (...args) => {
+                        orig(...args);
+                        run();
+                    };
                 }
+                window.addEventListener("popstate", run);
+
+                // Polling URL pour les SPA qui ne passent pas par history API
+                let lastPathname = window.location.pathname;
+                setInterval(() => {
+                    if (window.location.pathname !== lastPathname) {
+                        lastPathname = window.location.pathname;
+                        run();
+                    }
+                }, 500);
             }
 
             /**@description check for BNF users. If yes, create link button */
@@ -4227,6 +4383,7 @@
                 } else {
                     console.log("[ophirofox][asi] on original site, running handleArretSurImages");
                     setTimeout(() => handleArretSurImages(config).catch(console.error), 1000);
+                    watchForSpaNavigation(config);
                 }
             }
 
@@ -4243,6 +4400,278 @@
             font-weight: 900 !important;
             font-style: italic !important;
             text-transform: none !important;
+        }
+        `);
+    }
+
+    if (match(hostname, "https://www.alternatives-economiques.fr/*")) {
+
+        window.addEventListener("load", function(event) {
+            //BNF : Bibliothèque Nationale de France
+
+            const BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL = "https://bnf.idm.oclc.org/login?url=https://www.alternatives-economiques.fr";
+
+            /**
+             * @description create link <a> to BNF mirror
+             */
+            function createLink() {
+                const span = document.createElement("span");
+                span.textContent = "Lire avec BNF";
+                span.className = "sub-stamp-component etiquette ophirofox-europresse";
+                const a = document.createElement("a");
+                a.href = BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL;
+                a.appendChild(span);
+                return a;
+            }
+
+            /**
+             * @description check DOM for paywall iframe
+             * @return {HTMLElement[]} The paywall iframe elements
+             */
+            function findPremiumBanner() {
+                const paywall = document.querySelector("iframe#temp-paywall");
+                if (!paywall) return [];
+                return [paywall];
+            }
+
+            /** @return {boolean} true si le bouton BNF est déjà dans le DOM */
+            function bnfLinkAlreadyPresent() {
+                return !!document.querySelector("a.ophirofox-europresse");
+            }
+
+            async function handleAlternativesEconomiquesMirror(config) {
+                const currentPage = new URL(window.location);
+                console.log("[ophirofox][ae-mirror] on mirror:", currentPage.pathname);
+
+                const {
+                    ophirofox_alternativeseconomiques_article: articlePath
+                } =
+                await chrome.storage.sync.get(['ophirofox_alternativeseconomiques_article']);
+
+                if (!articlePath) {
+                    // If we're directly on the mirror with no stored article, nothing to do
+                    return;
+                }
+
+                // Redirect to the stored article on the mirror
+                console.log("[ophirofox][ae-mirror] redirect to:", articlePath);
+                chrome.storage.sync.remove(["ophirofox_alternativeseconomiques_article"]);
+                window.location.pathname = articlePath;
+            }
+
+            async function handleAlternativesEconomiques(config) {
+                console.log("[ophirofox][ae] checking for premium banner");
+
+                if (bnfLinkAlreadyPresent()) return;
+
+                const reserve = findPremiumBanner();
+                if (!reserve?.length) return;
+
+                console.log("[ophirofox][ae] premium banner found, injecting link");
+                chrome.storage.sync.set({
+                    "ophirofox_alternativeseconomiques_article": new URL(window.location).pathname
+                });
+
+                for (const balise of reserve) {
+                    const link = createLink();
+                    balise.parentElement.insertBefore(link, balise);
+                    console.log("[ophirofox][ae] link injected —", link);
+                    console.log("[ophirofox][ae] find it with: document.querySelector('a.ophirofox-europresse')");
+                }
+            }
+
+            /** @description watch for the paywall iframe to appear and inject the BNF link */
+            function watchForPaywall(config) {
+                // Tentative immédiate au cas où l'iframe est déjà là
+                handleAlternativesEconomiques(config).catch(console.error);
+
+                // Observe le DOM jusqu'à ce que iframe#temp-paywall apparaisse
+                const observer = new MutationObserver(() => {
+                    if (document.querySelector("iframe#temp-paywall")) {
+                        console.log("[ophirofox][ae] paywall iframe detected via observer");
+                        handleAlternativesEconomiques(config).catch(console.error);
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+
+                // Filet de sécurité : arrêter l'observer après 30s
+                setTimeout(() => observer.disconnect(), 30000);
+            }
+
+            /** @description check for BNF users. If yes, create link button */
+            async function onLoad() {
+                console.log("[ophirofox][ae] onLoad");
+                const config = await configurationsSpecifiques(['BNF']);
+                if (!config) {
+                    console.log("[ophirofox][ae] no BNF config found, aborting");
+                    return;
+                }
+                const currentPage = new URL(window.location);
+                console.log("[ophirofox][ae] currentPage.host:", currentPage.host, "| AUTH_URL_ALTERNATIVESECONOMIQUES:", config.AUTH_URL_ALTERNATIVESECONOMIQUES);
+                if (currentPage.host == config.AUTH_URL_ALTERNATIVESECONOMIQUES) {
+                    console.log("[ophirofox][ae] on mirror, running handleAlternativesEconomiquesMirror");
+                    handleAlternativesEconomiquesMirror(config);
+                } else {
+                    console.log("[ophirofox][ae] on original site, running handleAlternativesEconomiques");
+                    watchForPaywall(config);
+                }
+            }
+
+            onLoad().catch(console.error);
+        });
+
+        pasteStyle(`
+        .ophirofox-europresse {
+            background-color: #ffd700;
+            border: 1px #cc9900 solid;
+            padding: calc(0.25em - 1px) 0.5em !important;
+            color: #000;
+            font-family: "Barlow Condensed", "Open Sans Condensed", sans-serif;
+            font-weight: 700 !important;
+            font-style: normal !important;
+            text-decoration: none !important;
+            display: inline-block;
+            margin: 0.5em 0;
+        }
+        `);
+    }
+
+    if (match(hostname, "https://www-alternatives-economiques-fr.bnf.idm.oclc.org/*")) {
+
+        window.addEventListener("load", function(event) {
+            //BNF : Bibliothèque Nationale de France
+
+            const BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL = "https://bnf.idm.oclc.org/login?url=https://www.alternatives-economiques.fr";
+
+            /**
+             * @description create link <a> to BNF mirror
+             */
+            function createLink() {
+                const span = document.createElement("span");
+                span.textContent = "Lire avec BNF";
+                span.className = "sub-stamp-component etiquette ophirofox-europresse";
+                const a = document.createElement("a");
+                a.href = BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL;
+                a.appendChild(span);
+                return a;
+            }
+
+            /**
+             * @description check DOM for paywall iframe
+             * @return {HTMLElement[]} The paywall iframe elements
+             */
+            function findPremiumBanner() {
+                const paywall = document.querySelector("iframe#temp-paywall");
+                if (!paywall) return [];
+                return [paywall];
+            }
+
+            /** @return {boolean} true si le bouton BNF est déjà dans le DOM */
+            function bnfLinkAlreadyPresent() {
+                return !!document.querySelector("a.ophirofox-europresse");
+            }
+
+            async function handleAlternativesEconomiquesMirror(config) {
+                const currentPage = new URL(window.location);
+                console.log("[ophirofox][ae-mirror] on mirror:", currentPage.pathname);
+
+                const {
+                    ophirofox_alternativeseconomiques_article: articlePath
+                } =
+                await chrome.storage.sync.get(['ophirofox_alternativeseconomiques_article']);
+
+                if (!articlePath) {
+                    // If we're directly on the mirror with no stored article, nothing to do
+                    return;
+                }
+
+                // Redirect to the stored article on the mirror
+                console.log("[ophirofox][ae-mirror] redirect to:", articlePath);
+                chrome.storage.sync.remove(["ophirofox_alternativeseconomiques_article"]);
+                window.location.pathname = articlePath;
+            }
+
+            async function handleAlternativesEconomiques(config) {
+                console.log("[ophirofox][ae] checking for premium banner");
+
+                if (bnfLinkAlreadyPresent()) return;
+
+                const reserve = findPremiumBanner();
+                if (!reserve?.length) return;
+
+                console.log("[ophirofox][ae] premium banner found, injecting link");
+                chrome.storage.sync.set({
+                    "ophirofox_alternativeseconomiques_article": new URL(window.location).pathname
+                });
+
+                for (const balise of reserve) {
+                    const link = createLink();
+                    balise.parentElement.insertBefore(link, balise);
+                    console.log("[ophirofox][ae] link injected —", link);
+                    console.log("[ophirofox][ae] find it with: document.querySelector('a.ophirofox-europresse')");
+                }
+            }
+
+            /** @description watch for the paywall iframe to appear and inject the BNF link */
+            function watchForPaywall(config) {
+                // Tentative immédiate au cas où l'iframe est déjà là
+                handleAlternativesEconomiques(config).catch(console.error);
+
+                // Observe le DOM jusqu'à ce que iframe#temp-paywall apparaisse
+                const observer = new MutationObserver(() => {
+                    if (document.querySelector("iframe#temp-paywall")) {
+                        console.log("[ophirofox][ae] paywall iframe detected via observer");
+                        handleAlternativesEconomiques(config).catch(console.error);
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+
+                // Filet de sécurité : arrêter l'observer après 30s
+                setTimeout(() => observer.disconnect(), 30000);
+            }
+
+            /** @description check for BNF users. If yes, create link button */
+            async function onLoad() {
+                console.log("[ophirofox][ae] onLoad");
+                const config = await configurationsSpecifiques(['BNF']);
+                if (!config) {
+                    console.log("[ophirofox][ae] no BNF config found, aborting");
+                    return;
+                }
+                const currentPage = new URL(window.location);
+                console.log("[ophirofox][ae] currentPage.host:", currentPage.host, "| AUTH_URL_ALTERNATIVESECONOMIQUES:", config.AUTH_URL_ALTERNATIVESECONOMIQUES);
+                if (currentPage.host == config.AUTH_URL_ALTERNATIVESECONOMIQUES) {
+                    console.log("[ophirofox][ae] on mirror, running handleAlternativesEconomiquesMirror");
+                    handleAlternativesEconomiquesMirror(config);
+                } else {
+                    console.log("[ophirofox][ae] on original site, running handleAlternativesEconomiques");
+                    watchForPaywall(config);
+                }
+            }
+
+            onLoad().catch(console.error);
+        });
+
+        pasteStyle(`
+        .ophirofox-europresse {
+            background-color: #ffd700;
+            border: 1px #cc9900 solid;
+            padding: calc(0.25em - 1px) 0.5em !important;
+            color: #000;
+            font-family: "Barlow Condensed", "Open Sans Condensed", sans-serif;
+            font-weight: 700 !important;
+            font-style: normal !important;
+            text-decoration: none !important;
+            display: inline-block;
+            margin: 0.5em 0;
         }
         `);
     }
