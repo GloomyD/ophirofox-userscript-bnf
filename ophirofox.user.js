@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10630.1324
+// @version 2.6.10630.1424
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -182,6 +182,7 @@
 // @include https://www.economist.com/*
 // @include https://www.lanouvellerepublique.fr/*
 // @include https://www.lagazettedescommunes.com/*
+// @include https://www.24heures.ch/*
 //
 // @run-at      document-start
 //
@@ -5305,6 +5306,52 @@
         pasteStyle(`
         .ophirofox-europresse {
             line-height: 50px;
+        }
+        `);
+    }
+
+    if (match(hostname, "https://www.24heures.ch/*")) {
+
+        window.addEventListener("load", function(event) {
+            function extractKeywords() {
+                const title = document.querySelector("h1, .titleheader");
+                return title?.textContent?.trim();
+            }
+
+            async function createLink() {
+                const a = await ophirofoxEuropresseLink(extractKeywords());
+                a.classList.add("ophirofox-europresse");
+                return a;
+            }
+
+            function findPremiumBanner() {
+                const premium = document.querySelector("span.premium");
+                if (!premium?.textContent.includes("Abo")) return null;
+                return premium;
+            }
+
+            async function onLoad() {
+                if (window.location.pathname === "/") return;
+                const premium = findPremiumBanner();
+                if (!premium) return;
+                premium.before(await createLink());
+            }
+
+            onLoad().catch(console.error);
+        });
+
+        pasteStyle(`
+        .ophirofox-europresse {
+            display: inline-block;
+            margin-right: .5rem;
+            padding: .2rem .6rem;
+            font-weight: 600;
+            font-size: 1.2rem;
+            font-family: var(--font-libre-franklin);
+            line-height: 1.6rem;
+            letter-spacing: .025rem;
+            background: #ffe404;
+            color: black;
         }
         `);
     }
