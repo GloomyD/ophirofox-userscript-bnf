@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10810.1508
+// @version 2.6.10814.1232
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -1088,6 +1088,12 @@
     if (match(hostname, "https://www.liberation.fr/*")) {
 
         window.addEventListener("load", function(event) {
+            const PAYWALL_TEXT = 'Réservé aux abonnés'.normalize('NFC');
+
+            function normalizeText(text) {
+                return text.normalize('NFC').replace(/\u00A0/g, ' ').trim();
+            }
+
             function extractKeywords() {
                 return document
                     .querySelector("meta[property='og:title']")
@@ -1101,25 +1107,27 @@
                 return a;
             }
 
-            function findPremiumBanner() {
-                return document.querySelector('div[class^=article-body-paywall]') || null;
-            }
-
             function findInsertionPoint() {
-                const target = 'Réservé aux abonnés'.normalize('NFC');
                 const el = [...document.querySelectorAll('span')].find(
-                    s => s.textContent.normalize('NFC').trim() === target
+                    s => normalizeText(s.textContent) === PAYWALL_TEXT
                 );
                 return el?.parentElement ?? null;
             }
 
+            let injected = false;
+
             async function injectLink(publishedDate) {
-                if (document.querySelector('div[class^=article-body-paywall] + a.ophirofox-europresse')) return;
                 const anchor = findInsertionPoint();
-                if (!anchor) return;
-                const link = await createLink(publishedDate);
-                anchor.after(link);
-                console.log('Ophirofox injected');
+                if (!anchor || injected) return;
+                if (anchor.parentElement.querySelector('a.ophirofox-europresse')) return;
+                injected = true;
+                try {
+                    const link = await createLink(publishedDate);
+                    anchor.after(link);
+                    console.log('Ophirofox injected');
+                } finally {
+                    injected = false;
+                }
             }
 
             function resolvePublishedDate() {
@@ -1147,18 +1155,14 @@
                 return publishedDate;
             }
 
-            async function onLoad() {
+            function onLoad() {
                 const observer = new MutationObserver(async mutationsList => {
                     for (let mutation of mutationsList) {
-                        if (mutation.addedNodes.length > 0) {
-                            const addedNode = mutation.addedNodes[0];
-                            if (
-                                addedNode.classList.contains('dossier-feed') ||
-                                addedNode.classList.contains('article-body-paywall')
-                            ) {
-                                observer.disconnect();
+                        for (const addedNode of mutation.addedNodes) {
+                            if (addedNode.nodeType !== Node.ELEMENT_NODE && addedNode.nodeType !== Node.TEXT_NODE) continue;
+                            if (normalizeText(addedNode.textContent).includes(PAYWALL_TEXT)) {
                                 await injectLink(resolvePublishedDate());
-                                break;
+                                return;
                             }
                         }
                     }
@@ -1170,10 +1174,8 @@
             }
 
             (async () => {
-                if (findPremiumBanner()) {
-                    await injectLink(resolvePublishedDate());
-                }
                 onLoad();
+                await injectLink(resolvePublishedDate());
             })();
         });
 
@@ -1215,6 +1217,12 @@
     if (match(hostname, "https://next.liberation.fr/*")) {
 
         window.addEventListener("load", function(event) {
+            const PAYWALL_TEXT = 'Réservé aux abonnés'.normalize('NFC');
+
+            function normalizeText(text) {
+                return text.normalize('NFC').replace(/\u00A0/g, ' ').trim();
+            }
+
             function extractKeywords() {
                 return document
                     .querySelector("meta[property='og:title']")
@@ -1228,25 +1236,27 @@
                 return a;
             }
 
-            function findPremiumBanner() {
-                return document.querySelector('div[class^=article-body-paywall]') || null;
-            }
-
             function findInsertionPoint() {
-                const target = 'Réservé aux abonnés'.normalize('NFC');
                 const el = [...document.querySelectorAll('span')].find(
-                    s => s.textContent.normalize('NFC').trim() === target
+                    s => normalizeText(s.textContent) === PAYWALL_TEXT
                 );
                 return el?.parentElement ?? null;
             }
 
+            let injected = false;
+
             async function injectLink(publishedDate) {
-                if (document.querySelector('div[class^=article-body-paywall] + a.ophirofox-europresse')) return;
                 const anchor = findInsertionPoint();
-                if (!anchor) return;
-                const link = await createLink(publishedDate);
-                anchor.after(link);
-                console.log('Ophirofox injected');
+                if (!anchor || injected) return;
+                if (anchor.parentElement.querySelector('a.ophirofox-europresse')) return;
+                injected = true;
+                try {
+                    const link = await createLink(publishedDate);
+                    anchor.after(link);
+                    console.log('Ophirofox injected');
+                } finally {
+                    injected = false;
+                }
             }
 
             function resolvePublishedDate() {
@@ -1274,18 +1284,14 @@
                 return publishedDate;
             }
 
-            async function onLoad() {
+            function onLoad() {
                 const observer = new MutationObserver(async mutationsList => {
                     for (let mutation of mutationsList) {
-                        if (mutation.addedNodes.length > 0) {
-                            const addedNode = mutation.addedNodes[0];
-                            if (
-                                addedNode.classList.contains('dossier-feed') ||
-                                addedNode.classList.contains('article-body-paywall')
-                            ) {
-                                observer.disconnect();
+                        for (const addedNode of mutation.addedNodes) {
+                            if (addedNode.nodeType !== Node.ELEMENT_NODE && addedNode.nodeType !== Node.TEXT_NODE) continue;
+                            if (normalizeText(addedNode.textContent).includes(PAYWALL_TEXT)) {
                                 await injectLink(resolvePublishedDate());
-                                break;
+                                return;
                             }
                         }
                     }
@@ -1297,10 +1303,8 @@
             }
 
             (async () => {
-                if (findPremiumBanner()) {
-                    await injectLink(resolvePublishedDate());
-                }
                 onLoad();
+                await injectLink(resolvePublishedDate());
             })();
         });
 
