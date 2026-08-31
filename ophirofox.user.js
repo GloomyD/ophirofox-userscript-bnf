@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10814.1232
+// @version 2.6.10830.2212
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -5291,26 +5291,26 @@
     if (match(hostname, "https://www.lagazettedescommunes.com/*")) {
 
         window.addEventListener("load", function(event) {
+            const PAYWALL_LABEL_SELECTOR = ".c-paywall-label";
+
             function extractKeywords() {
-                return document.querySelector("h1").textContent;
+                return document.querySelector("h1")?.textContent;
             }
 
             async function createLink() {
-                const a = await ophirofoxEuropresseLink(extractKeywords());
-                a.classList.add("buttonTypeA", "buttonTypeA--1");
-                return a;
+                return await ophirofoxEuropresseLink(extractKeywords());
             }
 
             function findPremiumBanner() {
-                const title = document.querySelector("h1");
-                if (!title) return null;
-                return title.parentElement.querySelector(".notYet") ? title : null;
+                return [...document.querySelectorAll(PAYWALL_LABEL_SELECTOR)]
+                    .find((label) => label.textContent.includes("Réservé aux abonnés"));
             }
 
             async function onLoad() {
+                if (document.querySelector(".ophirofox-europresse")) return;
                 const premiumBanner = findPremiumBanner();
                 if (!premiumBanner) return;
-                premiumBanner.after(await createLink());
+                premiumBanner.append(document.createTextNode(" • "), await createLink());
             }
 
             onLoad().catch(console.error);
@@ -5318,7 +5318,8 @@
 
         pasteStyle(`
         .ophirofox-europresse {
-            line-height: 50px;
+            line-height: inherit;
+            text-decoration: underline;
         }
         `);
     }
