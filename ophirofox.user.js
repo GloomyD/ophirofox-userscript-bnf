@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10927.1438
+// @version 2.6.10928.2140
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -1863,6 +1863,7 @@
         pasteStyle(`
         .ophirofox-europresse {
             background-color: #faec70;
+            color: #000;
             padding: 0.4em;
             padding-right: 1em;
             padding-left: 1em;
@@ -1870,6 +1871,7 @@
             border-radius: 50px;
             text-decoration: none;
             font-size: 1.2rem;
+            margin-left: 0.5em;
         }
         `);
     }
@@ -2012,8 +2014,9 @@
              * @return {HTMLElement} DOM Premium Banner and head of the article
              */
             function findPremiumBanner() {
-                const article = document.querySelector(".news__body__center__container");
-                if (!article) return null;
+                // Les articles au format « immersif » n'ont pas ce conteneur : le texte du message suffit
+                // à le distinguer
+                const article = document.querySelector(".news__body__center__container") || document;
                 const elems = article.querySelectorAll(".paywall-message");
                 //labels not the same for mobile or PC display
                 const textToFind = ["réservée aux abonné·es", "réservé aux abonné·es"];
@@ -2054,7 +2057,7 @@
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
-                if (!reserve) return;
+                if (!reserve || reserve.length === 0) return;
                 chrome.storage.sync.set({
                     "ophirofox_mediapart_article": new URL(window.location).pathname
                 })
@@ -2113,8 +2116,9 @@
              * @return {HTMLElement} DOM Premium Banner and head of the article
              */
             function findPremiumBanner() {
-                const article = document.querySelector(".news__body__center__container");
-                if (!article) return null;
+                // Les articles au format « immersif » n'ont pas ce conteneur : le texte du message suffit
+                // à le distinguer
+                const article = document.querySelector(".news__body__center__container") || document;
                 const elems = article.querySelectorAll(".paywall-message");
                 //labels not the same for mobile or PC display
                 const textToFind = ["réservée aux abonné·es", "réservé aux abonné·es"];
@@ -2155,7 +2159,7 @@
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
-                if (!reserve) return;
+                if (!reserve || reserve.length === 0) return;
                 chrome.storage.sync.set({
                     "ophirofox_mediapart_article": new URL(window.location).pathname
                 })
@@ -2214,8 +2218,9 @@
              * @return {HTMLElement} DOM Premium Banner and head of the article
              */
             function findPremiumBanner() {
-                const article = document.querySelector(".news__body__center__container");
-                if (!article) return null;
+                // Les articles au format « immersif » n'ont pas ce conteneur : le texte du message suffit
+                // à le distinguer
+                const article = document.querySelector(".news__body__center__container") || document;
                 const elems = article.querySelectorAll(".paywall-message");
                 //labels not the same for mobile or PC display
                 const textToFind = ["réservée aux abonné·es", "réservé aux abonné·es"];
@@ -2256,7 +2261,7 @@
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
-                if (!reserve) return;
+                if (!reserve || reserve.length === 0) return;
                 chrome.storage.sync.set({
                     "ophirofox_mediapart_article": new URL(window.location).pathname
                 })
@@ -2449,7 +2454,9 @@
             background-color: #f2c94c;
             color: #695106;
             font-family: Lato,Lato-fallback,Arial,Helvetica,sans-serif;
-            padding: 1em;
+            display: inline-block;
+            padding: .5em 1em;
+            margin: 0 .5em 1em 0;
             vertical-align: middle;
             border-radius: 0.5rem;
         }
@@ -2848,7 +2855,7 @@
                 if (!banner) return;
                 if (banner.querySelector('.ophirofox-europresse')) return;
                 const premiumBanner = [...banner.querySelectorAll('p')]
-                    .find(p => p.textContent === 'Ce contenu est réservé aux abonnés');
+                    .find(p => p.textContent.trim().startsWith('Ce contenu est réservé aux abonnés'));
                 if (!premiumBanner) return;
                 ophirofoxEuropresseLink(document.querySelector('h1')?.textContent)
                     .then(a => premiumBanner.after(a));
